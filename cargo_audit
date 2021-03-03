@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+#
+# OBS Source Service to vendor all crates.io and dependencies for a
+# Rust project locally.
+#
+# (C) 2021 William Brown <william at blackhats.net.au>
+#
+# Mozilla Public License Version 2.0
+# See LICENSE.md for details.
+
+"""\
+OBS Source Service to audit all crates.io and dependencies for security
+issues that are known upstream.
+
+To do this manually you can run "cargo audit" inside the source of the
+project.
+
+This requires a decompressed version of you sources. Either you need to
+provide this manually, or you can use obs_scm to generate this as part
+of the osc services.
+
+See README.md for additional documentation.
+"""
+
+import logging
+import argparse
+import os
+import json
+
+from subprocess import run
+from subprocess import PIPE
+from subprocess import STDOUT
+from subprocess import CalledProcessError
+
+service_name = "obs-service-cargo_audit"
+description = __doc__
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(service_name)
+
+parser = argparse.ArgumentParser(
+    description=description, formatter_class=argparse.RawDescriptionHelpFormatter
+)
+parser.add_argument("--srcdir")
+args = parser.parse_args()
+
+srcdir = args.srcdir
+
+def find_file(path, filename):
+    return [
+        os.path.join(root, filename)
+        for root, dirs, files in os.walk(path)
+        if filename in files and 'vendor' not in root
+    ]
+
+def cargo_audit(lock_file):
+    log.debug(f"Running cargo audit against: {lock_file}")
+    cmd = [
+        "cargo", "audit",
+        "--json",
+        "-c", "never",
+        "-D", "warnings",
+        "-f", lock_file,
+        # Once we have cargo-audit packaged, these flags can be used.
+        # "-n", "--stale", "-d", "/some/advisory-db",
+    ]
+    dcmd = " ".join(cmd)
+    log.debug(f"Running {dcmd}")
+    proc = run(cmd, check=False, stdout=PIPE, stderr=STDOUT)
+    output = proc.stdout.decode("utf-8").strip()
+    log.debug(f"return: {proc.returncode}")
+    details = json.loads(output)
+    # log.debug(json.dumps(details, sort_keys=True, indent=4))
+    if proc.returncode != 0:
+        # Issue may have been found!
+        vuln_count = details["vulnerabilities"]["count"]
+        if vuln_count > 0:
+            log.error(f"possible vulnerabilties: {vuln_count}")
+            vulns = details["vulnerabilities"]["list"]
+            for vuln in vulns:
+                affects = vuln["advisory"]["package"]
+                cvss = vuln["advisory"]["cvss"]
+                vid = vuln["advisory"]["id"]
+                categories = vuln["advisory"]["categories"]
+                log.error(f"🚨 {vid} -> crate: {affects}, cvss: {cvss}, class: {categories}")
+            log.error(f"For more information you SHOULD inspect the output of cargo-audit manually for {lock_file}.")
+            return True
+    log.info(f"✅ No known issues detected in {lock_file}")
+    return False
+
+def main():
+    log.info(f"Running OBS Source Service 🛒: {service_name}")
+    log.info(f"Current working dir: {os.getcwd()}")
+    log.info(f"Searching for Cargo.toml in: {srcdir}")
+
+    cargo_lock_paths = find_file(srcdir, "Cargo.lock")
+
+    if cargo_lock_paths:
+        log.debug(f"Detected Rust lock files: {cargo_lock_paths}")
+        status = any([cargo_audit(cargo_lock_path) for cargo_lock_path in cargo_lock_paths])
+        if status:
+            log.error("🚨 Vulnerabilities may have been found. You must review these.")
+            exit(1)
+        log.info("No known issues detected 🎉🦀")
+    else:
+        log.error("No Rust Cargo.lock found under {srcdir}")
+        exit(1)
+
+if __name__ == "__main__":
+    main()
