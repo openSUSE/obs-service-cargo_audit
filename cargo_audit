@@ -56,13 +56,13 @@ def find_file(path, filename):
 def cargo_audit(lock_file):
     log.debug(f"Running cargo audit against: {lock_file}")
     cmd = [
-        "cargo", "audit",
+        "cargo-audit", "audit",
         "--json",
         "-c", "never",
         "-D", "warnings",
-        "-f", lock_file,
         # Once we have cargo-audit packaged, these flags can be used.
-        # "-n", "--stale", "-d", "/some/advisory-db",
+        "-n", "-d", "/usr/share/cargo-audit-advisory-db/",
+        "-f", lock_file,
     ]
     dcmd = " ".join(cmd)
     log.debug(f"Running {dcmd}")
