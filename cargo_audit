@@ -42,6 +42,8 @@ parser = argparse.ArgumentParser(
     description=description, formatter_class=argparse.RawDescriptionHelpFormatter
 )
 parser.add_argument("--srcdir")
+# We always ignore this parameter.
+parser.add_argument("--outdir")
 args = parser.parse_args()
 
 srcdir = args.srcdir
