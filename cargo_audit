@@ -55,6 +55,21 @@ def find_file(path, filename):
         if filename in files and 'vendor' not in root
     ]
 
+def generate_lock(path):
+    log.debug(f"Running cargo generate-lockfile against: {path}/Cargo.toml")
+    cmd = [
+        "cargo", "generate-lockfile", "-q",
+        "--manifest-path", f"{path}/Cargo.toml",
+    ]
+    dcmd = " ".join(cmd)
+    log.debug(f"Running {dcmd}")
+    proc = run(cmd, check=False, stdout=PIPE, stderr=STDOUT)
+    output = proc.stdout.decode("utf-8").strip()
+    log.debug(f"return: {proc.returncode}")
+    if proc.returncode != 0:
+        log.error(f"Could not generate Cargo.lock under {path}")
+        exit(1)
+
 def cargo_audit(lock_file):
     log.debug(f"Running cargo audit against: {lock_file}")
     cmd = [
@@ -93,20 +108,26 @@ def cargo_audit(lock_file):
 def main():
     log.info(f"Running OBS Source Service 🛒: {service_name}")
     log.info(f"Current working dir: {os.getcwd()}")
-    log.info(f"Searching for Cargo.toml in: {srcdir}")
+    log.info(f"Searching for Cargo.lock in: {srcdir}")
 
     cargo_lock_paths = find_file(srcdir, "Cargo.lock")
 
-    if cargo_lock_paths:
-        log.debug(f"Detected Rust lock files: {cargo_lock_paths}")
-        status = any([cargo_audit(cargo_lock_path) for cargo_lock_path in cargo_lock_paths])
-        if status:
-            log.error("🚨 Vulnerabilities may have been found. You must review these.")
+    if not cargo_lock_paths:
+        log.info(f"No Rust Cargo.lock found under {srcdir}")
+        log.info(f"Searching for Cargo.toml in: {srcdir}")
+        if find_file(srcdir, "Cargo.toml"):
+            generate_lock(srcdir)
+        else:
+            log.error(f"No Rust Cargo.toml found under {srcdir}")
             exit(1)
-        log.info("No known issues detected 🎉🦀")
     else:
-        log.error("No Rust Cargo.lock found under {srcdir}")
+        log.debug(f"Detected Rust lock files: {cargo_lock_paths}")
+
+    status = any([cargo_audit(cargo_lock_path) for cargo_lock_path in cargo_lock_paths])
+    if status:
+        log.error("🚨 Vulnerabilities may have been found. You must review these.")
         exit(1)
+    log.info("No known issues detected 🎉🦀")
 
 if __name__ == "__main__":
     main()
