@@ -1,0 +1,5 @@
+.DS_Store
+*.pyc
+*.patch
+openSUSE:Factory/
+target/
