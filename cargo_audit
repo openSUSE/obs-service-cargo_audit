@@ -42,11 +42,13 @@ parser = argparse.ArgumentParser(
     description=description, formatter_class=argparse.RawDescriptionHelpFormatter
 )
 parser.add_argument("--srcdir")
+parser.add_argument("--lockfile", default=None)
 # We always ignore this parameter.
 parser.add_argument("--outdir")
 args = parser.parse_args()
 
 srcdir = args.srcdir
+lockfile = args.lockfile
 
 def find_file(path, filename):
     return [
@@ -56,18 +58,18 @@ def find_file(path, filename):
     ]
 
 def generate_lock(path):
-    log.debug(f"Running cargo generate-lockfile against: {path}/Cargo.toml")
+    log.debug(f" Running cargo generate-lockfile against: {path}/Cargo.toml")
     cmd = [
         "cargo", "generate-lockfile", "-q",
         "--manifest-path", f"{path}/Cargo.toml",
     ]
     dcmd = " ".join(cmd)
-    log.debug(f"Running {dcmd}")
+    log.debug(f" Running {dcmd}")
     proc = run(cmd, check=False, stdout=PIPE, stderr=STDOUT)
     output = proc.stdout.decode("utf-8").strip()
-    log.debug(f"return: {proc.returncode}")
+    log.debug(f" return: {proc.returncode}")
     if proc.returncode != 0:
-        log.error(f"Could not generate Cargo.lock under {path}")
+        log.error(f" Could not generate Cargo.lock under {path}")
         exit(1)
 
 def cargo_audit(lock_file):
@@ -92,42 +94,47 @@ def cargo_audit(lock_file):
         # Issue may have been found!
         vuln_count = details["vulnerabilities"]["count"]
         if vuln_count > 0:
-            log.error(f"possible vulnerabilties: {vuln_count}")
+            log.error(f" possible vulnerabilties: {vuln_count}")
             vulns = details["vulnerabilities"]["list"]
             for vuln in vulns:
                 affects = vuln["advisory"]["package"]
                 cvss = vuln["advisory"]["cvss"]
                 vid = vuln["advisory"]["id"]
                 categories = vuln["advisory"]["categories"]
-                log.error(f"🚨 {vid} -> crate: {affects}, cvss: {cvss}, class: {categories}")
-            log.error(f"For more information you SHOULD inspect the output of cargo-audit manually for {lock_file}.")
+                log.error(f" 🚨 {vid} -> crate: {affects}, cvss: {cvss}, class: {categories}")
+            log.error(f" For more information you SHOULD inspect the output of cargo-audit manually for {lock_file}.")
             return True
-    log.info(f"✅ No known issues detected in {lock_file}")
+    log.info(f" ✅ No known issues detected in {lock_file}")
     return False
 
 def main():
-    log.info(f"Running OBS Source Service 🛒: {service_name}")
-    log.info(f"Current working dir: {os.getcwd()}")
-    log.info(f"Searching for Cargo.lock in: {srcdir}")
+    log.info(f" Running OBS Source Service 🛒: {service_name}")
+    log.debug(f" Current working dir: {os.getcwd()}")
 
-    cargo_lock_paths = find_file(srcdir, "Cargo.lock")
-
-    if not cargo_lock_paths:
-        log.info(f"No Rust Cargo.lock found under {srcdir}")
-        log.info(f"Searching for Cargo.toml in: {srcdir}")
-        if find_file(srcdir, "Cargo.toml"):
-            generate_lock(srcdir)
-        else:
-            log.error(f"No Rust Cargo.toml found under {srcdir}")
-            exit(1)
+    cargo_lock_paths = []
+    if lockfile:
+        cargo_lock_paths = [lockfile]
+        log.info(f" _service configured lock file: {lockfile}")
     else:
-        log.debug(f"Detected Rust lock files: {cargo_lock_paths}")
+        log.info(f" Searching for Cargo.lock in: {srcdir}")
+        cargo_lock_paths = find_file(srcdir, "Cargo.lock")
+
+        if not cargo_lock_paths:
+            log.info(f" No Rust Cargo.lock found under {srcdir}")
+            log.info(f" Searching for Cargo.toml in: {srcdir}")
+            if find_file(srcdir, "Cargo.toml"):
+                generate_lock(srcdir)
+            else:
+                log.error(f" No Rust Cargo.toml found under {srcdir}")
+                exit(1)
+        else:
+            log.debug(f" Detected Rust lock files: {cargo_lock_paths}")
 
     status = any([cargo_audit(cargo_lock_path) for cargo_lock_path in cargo_lock_paths])
     if status:
-        log.error("🚨 Vulnerabilities may have been found. You must review these.")
+        log.error(" ⚠️  Vulnerabilities may have been found. You must review these.")
         exit(1)
-    log.info("No known issues detected 🎉🦀")
+    log.info(" 🎉 🦀 No known issues detected")
 
 if __name__ == "__main__":
     main()
