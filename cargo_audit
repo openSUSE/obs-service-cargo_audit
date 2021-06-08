@@ -41,7 +41,7 @@ log = logging.getLogger(service_name)
 parser = argparse.ArgumentParser(
     description=description, formatter_class=argparse.RawDescriptionHelpFormatter
 )
-parser.add_argument("--srcdir")
+parser.add_argument("--srcdir", default=os.getcwd())
 parser.add_argument("--lockfile", default=None)
 # We always ignore this parameter.
 parser.add_argument("--outdir")
