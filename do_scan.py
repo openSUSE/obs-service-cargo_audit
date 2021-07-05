@@ -66,18 +66,7 @@ def do_services(pkgname):
         print(e.stdout)
 
 def do_unpack_scan(pkgname):
-    tgt_dir = f"openSUSE:Factory/{pkgname}"
-    # List everything in the folder.
-    content = os.listdir(tgt_dir)
-    # Find anything that contains .tar
-    # Exclude vendor.tar.*
-    maybe_src = [x for x in content if '.tar' in x and 'vendor' not in x]
-    # Attempt to unpack it into the directory.
-    for src in maybe_src:
-        print(f"Unpacking assumed source tar {src} to {tgt_dir}")
-        with tarfile.open(f"{tgt_dir}/{src}", "r:*") as tar:
-            tar.extractall(path=tgt_dir)
-    # Now do osc service lr cargo_audit to run manually.
+    # This will automatically do the unpack for use due to how cargo_audit as a service works :)
     try:
         out = subprocess.check_output(["osc", "service", "lr", "cargo_audit"], cwd=f"openSUSE:Factory/{pkgname}", encoding='UTF-8', stderr=subprocess.STDOUT)
         print(f"✅ -- passed")
@@ -85,11 +74,31 @@ def do_unpack_scan(pkgname):
         print(f"🚨 -- services failed")
         print(e.stdout)
 
+# def do_unpack_scan_old(pkgname):
+#     tgt_dir = f"openSUSE:Factory/{pkgname}"
+#     # List everything in the folder.
+#     content = os.listdir(tgt_dir)
+#     # Find anything that contains .tar
+#     # Exclude vendor.tar.*
+#     maybe_src = [x for x in content if '.tar' in x and 'vendor' not in x and not x.endswith('.asc')]
+#     # Attempt to unpack it into the directory.
+#     for src in maybe_src:
+#         print(f"Unpacking assumed source tar {src} to {tgt_dir}")
+#         with tarfile.open(f"{tgt_dir}/{src}", "r:*") as tar:
+#             tar.extractall(path=tgt_dir)
+#     # Now do osc service lr cargo_audit to run manually.
+#     try:
+#         out = subprocess.check_output(["osc", "service", "lr", "cargo_audit"], cwd=f"openSUSE:Factory/{pkgname}", encoding='UTF-8', stderr=subprocess.STDOUT)
+#         print(f"✅ -- passed")
+#     except subprocess.CalledProcessError as e:
+#         print(f"🚨 -- services failed")
+#         print(e.stdout)
+
 if __name__ == '__main__':
     depends = list_whatdepends()
 
     # For testing, we hardcode the list for dev.
-    depends = ['kanidm', 'librsvg', 'rust-cbindgen']
+    # depends = ['kanidm', 'librsvg', 'rust-cbindgen']
 
     # Check them out, or update if they exist.
     auditable_depends = []
@@ -97,11 +106,11 @@ if __name__ == '__main__':
     for pkgname in depends:
         print("---")
         checkout_or_update(pkgname)
-        # do they have cargo_audit as a service? 
+        # do they have cargo_audit as a service? Could we consider adding it?
         has_audit = does_have_cargo_audit(pkgname)
         if not has_audit:
             print(f"⚠️   https://build.opensuse.org/package/show/openSUSE:Factory/{pkgname} missing cargo_audit service")
-            print(f"✉️   https://build.opensuse.org/package/users/openSUSE:Factory/{pkgname}")
+            # print(f"✉️   https://build.opensuse.org/package/users/openSUSE:Factory/{pkgname}")
             # If not, we should contact the developers to add this. We can attempt to unpack
             # and run a scan still though.
             unpack_depends.append(pkgname)

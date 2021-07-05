@@ -22,6 +22,8 @@ of the osc services.
 See README.md for additional documentation.
 """
 
+import tarfile
+import tempfile
 import logging
 import argparse
 import os
@@ -35,16 +37,20 @@ from subprocess import CalledProcessError
 service_name = "obs-service-cargo_audit"
 description = __doc__
 
-logging.basicConfig(level=logging.INFO)
+if os.getenv('DEBUG') is not None:
+    logging.basicConfig(level=logging.DEBUG)
+else:
+    logging.basicConfig(level=logging.INFO)
+
 log = logging.getLogger(service_name)
 
 parser = argparse.ArgumentParser(
     description=description, formatter_class=argparse.RawDescriptionHelpFormatter
 )
-parser.add_argument("--srcdir", default=os.getcwd())
+parser.add_argument("--srcdir", default=None)
 parser.add_argument("--lockfile", default=None)
-# We always ignore this parameter.
-parser.add_argument("--outdir")
+# We always ignore this parameter, but it has to exist.
+parser.add_argument("--outdir", default=None)
 args = parser.parse_args()
 
 srcdir = args.srcdir
@@ -94,43 +100,70 @@ def cargo_audit(lock_file):
         # Issue may have been found!
         vuln_count = details["vulnerabilities"]["count"]
         if vuln_count > 0:
-            log.error(f" possible vulnerabilties: {vuln_count}")
+            log.error(f" 🚨 possible vulnerabilties: {vuln_count}")
+            log.error(f" {lock_file}")
+            log.error(f" For more information you SHOULD inspect the output of cargo audit manually")
             vulns = details["vulnerabilities"]["list"]
             for vuln in vulns:
                 affects = vuln["advisory"]["package"]
                 cvss = vuln["advisory"]["cvss"]
                 vid = vuln["advisory"]["id"]
                 categories = vuln["advisory"]["categories"]
-                log.error(f" 🚨 {vid} -> crate: {affects}, cvss: {cvss}, class: {categories}")
-            log.error(f" For more information you SHOULD inspect the output of cargo-audit manually for {lock_file}.")
+                log.error(f" * {vid} -> crate: {affects}, cvss: {cvss}, class: {categories}")
             return True
-    log.info(f" ✅ No known issues detected in {lock_file}")
+    log.info(f"  ✅ No known issues detected in {lock_file}")
     return False
+
+def do_extract(tgt_dir):
+    cwd = os.getcwd()
+    content = os.listdir(cwd)
+    maybe_src = [
+        x for x in content
+        if '.tar' in x and 'vendor' not in x and not x.endswith('.asc')
+    ]
+    for src in maybe_src:
+        log.debug(f"Unpacking assumed source tar {src} to {tgt_dir}")
+        with tarfile.open(f"{cwd}/{src}", "r:*") as tar:
+            tar.extractall(path=tgt_dir)
 
 def main():
     log.info(f" Running OBS Source Service 🛒: {service_name}")
     log.debug(f" Current working dir: {os.getcwd()}")
 
-    cargo_lock_paths = []
-    if lockfile:
-        cargo_lock_paths = [lockfile]
-        log.info(f" _service configured lock file: {lockfile}")
-    else:
-        log.info(f" Searching for Cargo.lock in: {srcdir}")
-        cargo_lock_paths = find_file(srcdir, "Cargo.lock")
+    lsrcdir = srcdir
+    status = False
+    # Setup our temp dir, in case we need it.
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        if lsrcdir is None:
+            # We likely need to unpack sources.
+            log.debug(f" setting up sources into {tmpdirname}")
+            lsrcdir = tmpdirname
+            do_extract(tmpdirname)
 
-        if not cargo_lock_paths:
-            log.info(f" No Rust Cargo.lock found under {srcdir}")
-            log.info(f" Searching for Cargo.toml in: {srcdir}")
-            if find_file(srcdir, "Cargo.toml"):
-                generate_lock(srcdir)
-            else:
-                log.error(f" No Rust Cargo.toml found under {srcdir}")
-                exit(1)
+        cargo_lock_paths = []
+        if lockfile:
+            log.info(f" _service configured lock file: {lockfile}")
+            cargo_lock_paths = [os.path.join(lsrcdir, lockfile)]
+            log.debug(f" {cargo_lock_paths}")
         else:
-            log.debug(f" Detected Rust lock files: {cargo_lock_paths}")
+            log.debug(f" Searching for Cargo.lock in: {lsrcdir}")
+            cargo_lock_paths = find_file(lsrcdir, "Cargo.lock")
 
-    status = any([cargo_audit(cargo_lock_path) for cargo_lock_path in cargo_lock_paths])
+            if not cargo_lock_paths:
+                log.info(f" No Rust Cargo.lock found under {lsrcdir}")
+                log.info(f" Searching for Cargo.toml in: {lsrcdir}")
+                if find_file(lsrcdir, "Cargo.toml"):
+                    generate_lock(lsrcdir)
+                else:
+                    log.error(f" No Rust Cargo.toml found under {lsrcdir}")
+                    exit(1)
+            else:
+                log.debug(f" Detected Rust lock files: {cargo_lock_paths}")
+
+        # Do the scan.
+        status = any([cargo_audit(cargo_lock_path) for cargo_lock_path in cargo_lock_paths])
+
+    # We exit the context manager, so tempdirname is now removed.
     if status:
         log.error(" ⚠️  Vulnerabilities may have been found. You must review these.")
         exit(1)
