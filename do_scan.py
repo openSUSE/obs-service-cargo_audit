@@ -15,6 +15,7 @@ EXCLUDE = set([
     'MozillaFirefox',
     'MozillaThunderbird',
     'rust',
+    'rust1.53',
     'seamonkey',
     'meson:test'
 ])
@@ -54,8 +55,9 @@ def does_have_cargo_audit(pkgname):
         root_node = ET.parse(service).getroot()
         for tag in root_node.findall('service'):
             if tag.attrib['name'] == 'cargo_audit':
-                return True
-    return False
+                return (True, True)
+        return (True, False)
+    return (False, False)
 
 def do_services(pkgname):
     try:
@@ -107,13 +109,13 @@ if __name__ == '__main__':
         print("---")
         checkout_or_update(pkgname)
         # do they have cargo_audit as a service? Could we consider adding it?
-        has_audit = does_have_cargo_audit(pkgname)
+        (has_services, has_audit) = does_have_cargo_audit(pkgname)
         if not has_audit:
             print(f"⚠️   https://build.opensuse.org/package/show/openSUSE:Factory/{pkgname} missing cargo_audit service")
             # print(f"✉️   https://build.opensuse.org/package/users/openSUSE:Factory/{pkgname}")
             # If not, we should contact the developers to add this. We can attempt to unpack
             # and run a scan still though.
-            unpack_depends.append(pkgname)
+            unpack_depends.append((pkgname, has_services))
         else:
             # If they do, run services. We may not know what they need for this to work, so we
             # have to run the full stack, but at the least, the developer probably has this
@@ -125,8 +127,11 @@ if __name__ == '__main__':
         print(f"🍿 running services for {pkgname} ...")
         do_services(pkgname)
 
-    for pkgname in unpack_depends:
+    for (pkgname, has_services) in unpack_depends:
         print("---")
+        if has_services:
+            print(f"🍿 running services for {pkgname} ...")
+            do_services(pkgname)
         print(f"🍿 unpacking and scanning {pkgname} ...")
         do_unpack_scan(pkgname)
 
