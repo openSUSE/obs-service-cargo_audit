@@ -27,6 +27,7 @@ import tempfile
 import logging
 import argparse
 import os
+import shutil
 import json
 
 from subprocess import run
@@ -139,12 +140,22 @@ def main():
             log.debug(f" setting up sources into {tmpdirname}")
             lsrcdir = tmpdirname
             do_extract(tmpdirname)
+        else:
+            (_, dirname) = os.path.split(lsrcdir)
+            dirpath = os.path.join(tmpdirname, dirname)
+            log.debug(f" copying sources into {dirpath}")
+            lsrcdir = shutil.copytree(lsrcdir, dirpath, dirs_exist_ok=True)
 
         cargo_lock_paths = []
         if lockfile:
-            log.info(f" _service configured lock file: {lockfile}")
-            cargo_lock_paths = [os.path.join(lsrcdir, lockfile)]
+            cargo_lock_f = os.path.join(lsrcdir, lockfile)
+            log.info(f" _service configured lock file: {lockfile} -> {cargo_lock_f}")
+            if not os.path.exists(cargo_lock_f):
+                (tgtsrc, _) = os.path.split(cargo_lock_f)
+                generate_lock(tgtsrc)
+            cargo_lock_paths = [cargo_lock_f]
             log.debug(f" {cargo_lock_paths}")
+
         else:
             log.debug(f" Searching for Cargo.lock in: {lsrcdir}")
             cargo_lock_paths = find_file(lsrcdir, "Cargo.lock")

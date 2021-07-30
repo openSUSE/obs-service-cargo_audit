@@ -42,12 +42,21 @@ def list_whatdepends():
     return raw_depends
 
 def checkout_or_update(pkgname):
-    if os.path.exists('openSUSE:Factory') and os.path.exists(f'openSUSE:Factory/{pkgname}'):
-        print(f"osc up openSUSE:Factory/{pkgname}")
-        subprocess.check_call(["osc", "up", f"openSUSE:Factory/{pkgname}"])
-    else:
-        print(f"osc co openSUSE:Factory/{pkgname}")
-        subprocess.check_call(["osc", "co", f"openSUSE:Factory/{pkgname}"])
+    try:
+        if os.path.exists('openSUSE:Factory') and os.path.exists(f'openSUSE:Factory/{pkgname}'):
+            print(f"osc up openSUSE:Factory/{pkgname}")
+            # Revert/cleanup if required.
+            out = subprocess.check_output(["osc", "revert", "."], cwd=f"openSUSE:Factory/{pkgname}")
+            out = subprocess.check_output(["osc", "clean", "."], cwd=f"openSUSE:Factory/{pkgname}")
+            out = subprocess.check_output(["osc", "up", f"openSUSE:Factory/{pkgname}"])
+        else:
+            print(f"osc co openSUSE:Factory/{pkgname}")
+            out = subprocess.check_output(["osc", "co", f"openSUSE:Factory/{pkgname}"])
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to checkout or update openSUSE:Factory/{pkgname}")
+        print(e.stdout)
+        raise e
+    print(f"done")
 
 def does_have_cargo_audit(pkgname):
     service = f"openSUSE:Factory/{pkgname}/_service"
@@ -62,7 +71,7 @@ def does_have_cargo_audit(pkgname):
 def do_services(pkgname):
     try:
         out = subprocess.check_output(["osc", "service", "ra"], cwd=f"openSUSE:Factory/{pkgname}", encoding='UTF-8', stderr=subprocess.STDOUT)
-        print(f"✅ -- passed")
+        print(f"✅ -- services passed")
     except subprocess.CalledProcessError as e:
         print(f"🚨 -- services failed")
         print(e.stdout)
@@ -71,30 +80,10 @@ def do_unpack_scan(pkgname):
     # This will automatically do the unpack for use due to how cargo_audit as a service works :)
     try:
         out = subprocess.check_output(["osc", "service", "lr", "cargo_audit"], cwd=f"openSUSE:Factory/{pkgname}", encoding='UTF-8', stderr=subprocess.STDOUT)
-        print(f"✅ -- passed")
+        print(f"✅ -- cargo_audit passed")
     except subprocess.CalledProcessError as e:
-        print(f"🚨 -- services failed")
+        print(f"🚨 -- cargo_audit failed")
         print(e.stdout)
-
-# def do_unpack_scan_old(pkgname):
-#     tgt_dir = f"openSUSE:Factory/{pkgname}"
-#     # List everything in the folder.
-#     content = os.listdir(tgt_dir)
-#     # Find anything that contains .tar
-#     # Exclude vendor.tar.*
-#     maybe_src = [x for x in content if '.tar' in x and 'vendor' not in x and not x.endswith('.asc')]
-#     # Attempt to unpack it into the directory.
-#     for src in maybe_src:
-#         print(f"Unpacking assumed source tar {src} to {tgt_dir}")
-#         with tarfile.open(f"{tgt_dir}/{src}", "r:*") as tar:
-#             tar.extractall(path=tgt_dir)
-#     # Now do osc service lr cargo_audit to run manually.
-#     try:
-#         out = subprocess.check_output(["osc", "service", "lr", "cargo_audit"], cwd=f"openSUSE:Factory/{pkgname}", encoding='UTF-8', stderr=subprocess.STDOUT)
-#         print(f"✅ -- passed")
-#     except subprocess.CalledProcessError as e:
-#         print(f"🚨 -- services failed")
-#         print(e.stdout)
 
 if __name__ == '__main__':
     depends = list_whatdepends()
@@ -111,7 +100,7 @@ if __name__ == '__main__':
         # do they have cargo_audit as a service? Could we consider adding it?
         (has_services, has_audit) = does_have_cargo_audit(pkgname)
         if not has_audit:
-            print(f"⚠️   https://build.opensuse.org/package/show/openSUSE:Factory/{pkgname} missing cargo_audit service")
+            print(f"⚠️   openSUSE:Factory/{pkgname} missing cargo_audit service - the maintainer should be contacted to add this")
             # print(f"✉️   https://build.opensuse.org/package/users/openSUSE:Factory/{pkgname}")
             # If not, we should contact the developers to add this. We can attempt to unpack
             # and run a scan still though.
