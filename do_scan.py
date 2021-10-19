@@ -10,7 +10,6 @@ WHATDEPENDS = ["osc", "whatdependson", "openSUSE:Factory", "rust", "standard", "
 CHECKOUT = ["osc", "co", "openSUSE:Factory"]
 UPDATE = ["osc", "up", "openSUSE:Factory"]
 
-
 EXCLUDE = set([
     'MozillaFirefox',
     'MozillaThunderbird',
@@ -69,27 +68,45 @@ def does_have_cargo_audit(pkgname):
     return (False, False)
 
 def do_services(pkgname):
+    cmd = [
+        "nsjail",
+        "--really_quiet",
+        "--config", "scan.cfg",
+        "--cwd", f"{os.getcwd()}/openSUSE:Factory/{pkgname}",
+        "--bindmount", f"{os.getcwd()}:{os.getcwd()}",
+        "/usr/bin/osc", "service", "ra"
+    ]
     try:
-        out = subprocess.check_output(["osc", "service", "ra"], cwd=f"openSUSE:Factory/{pkgname}", encoding='UTF-8', stderr=subprocess.STDOUT)
+        out = subprocess.check_output(cmd, encoding='UTF-8', stderr=subprocess.STDOUT)
         print(f"✅ -- services passed")
     except subprocess.CalledProcessError as e:
         print(f"🚨 -- services failed")
+        print(" ".join(cmd))
         print(e.stdout)
 
 def do_unpack_scan(pkgname):
     # This will automatically do the unpack for use due to how cargo_audit as a service works :)
+    cmd = [
+        "nsjail",
+        "--really_quiet",
+        "--config", "scan.cfg",
+        "--cwd", f"{os.getcwd()}/openSUSE:Factory/{pkgname}",
+        "--bindmount", f"{os.getcwd()}:{os.getcwd()}",
+        "/usr/bin/osc", "service", "lr", "cargo_audit"
+    ]
     try:
-        out = subprocess.check_output(["osc", "service", "lr", "cargo_audit"], cwd=f"openSUSE:Factory/{pkgname}", encoding='UTF-8', stderr=subprocess.STDOUT)
+        out = subprocess.check_output(cmd, encoding='UTF-8', stderr=subprocess.STDOUT)
         print(f"✅ -- cargo_audit passed")
     except subprocess.CalledProcessError as e:
         print(f"🚨 -- cargo_audit failed")
+        print(" ".join(cmd))
         print(e.stdout)
 
 if __name__ == '__main__':
     depends = list_whatdepends()
 
     # For testing, we hardcode the list for dev.
-    # depends = ['kanidm', 'librsvg', 'rust-cbindgen']
+    # depends = ["kanidm"]
 
     # Check them out, or update if they exist.
     auditable_depends = []
