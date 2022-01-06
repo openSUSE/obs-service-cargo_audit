@@ -45,17 +45,14 @@ else:
 
 log = logging.getLogger(service_name)
 
-parser = argparse.ArgumentParser(
-    description=description, formatter_class=argparse.RawDescriptionHelpFormatter
-)
-parser.add_argument("--srcdir", default=None)
-parser.add_argument("--lockfile", default=None)
-# We always ignore this parameter, but it has to exist.
-parser.add_argument("--outdir", default=None)
-args = parser.parse_args()
-
-srcdir = args.srcdir
-lockfile = args.lockfile
+EXCLUDE_ITEMS = [
+    # These two are excluded because they are fundamentally
+    # silly and can never be fixed.
+    # https://rustsec.org/advisories/RUSTSEC-2020-0071.html
+    # https://rustsec.org/advisories/RUSTSEC-2020-0159.html
+    "RUSTSEC-2020-0071",
+    "RUSTSEC-2020-0159",
+]
 
 def find_file(path, filename):
     return [
@@ -90,6 +87,9 @@ def cargo_audit(lock_file):
         "-n", "-d", "/usr/share/cargo-audit-advisory-db/",
         "-f", lock_file,
     ]
+    for item in EXCLUDE_ITEMS:
+        cmd.append("--ignore")
+        cmd.append(item)
     dcmd = " ".join(cmd)
     log.debug(f"Running {dcmd}")
     proc = run(cmd, check=False, stdout=PIPE, stderr=STDOUT)
@@ -111,35 +111,31 @@ def cargo_audit(lock_file):
                 vid = vuln["advisory"]["id"]
                 categories = vuln["advisory"]["categories"]
                 log.error(f" * {vid} -> crate: {affects}, cvss: {cvss}, class: {categories}")
-            return True
+            return details
     log.info(f"  ✅ No known issues detected in {lock_file}")
-    return False
+    return None
 
-def do_extract(tgt_dir):
-    cwd = os.getcwd()
-    content = os.listdir(cwd)
+def do_extract(from_dir, tgt_dir):
+    content = os.listdir(from_dir)
     maybe_src = [
         x for x in content
         if '.tar' in x and 'vendor' not in x and not x.endswith('.asc')
     ]
     for src in maybe_src:
         log.debug(f"Unpacking assumed source tar {src} to {tgt_dir}")
-        with tarfile.open(f"{cwd}/{src}", "r:*") as tar:
+        with tarfile.open(f"{from_dir}/{src}", "r:*") as tar:
             tar.extractall(path=tgt_dir)
 
-def main():
-    log.info(f" Running OBS Source Service 🛒: {service_name}")
-    log.debug(f" Current working dir: {os.getcwd()}")
+def do_cargo_audit(workdir, lsrcdir, lockfile):
+    scan = []
 
-    lsrcdir = srcdir
-    status = False
     # Setup our temp dir, in case we need it.
     with tempfile.TemporaryDirectory() as tmpdirname:
         if lsrcdir is None:
             # We likely need to unpack sources.
             log.debug(f" setting up sources into {tmpdirname}")
             lsrcdir = tmpdirname
-            do_extract(tmpdirname)
+            do_extract(workdir, tmpdirname)
         else:
             (_, dirname) = os.path.split(lsrcdir)
             dirpath = os.path.join(tmpdirname, dirname)
@@ -172,13 +168,46 @@ def main():
                 log.debug(f" Detected Rust lock files: {cargo_lock_paths}")
 
         # Do the scan.
-        status = any([cargo_audit(cargo_lock_path) for cargo_lock_path in cargo_lock_paths])
+        scan = [
+            cargo_audit(cargo_lock_path)
+            for cargo_lock_path in cargo_lock_paths
+        ]
+        scan = [
+            details
+            for details in scan
+            if details is not None
+        ]
+        for details in scan:
+            log.debug(json.dumps(details, sort_keys=True, indent=4))
+    return scan
+
+
+def main():
+    log.info(f" Running OBS Source Service 🛒: {service_name}")
+
+    workdir = os.getcwd()
+    log.debug(f" Current working dir: {workdir}")
+
+    parser = argparse.ArgumentParser(
+        description=description, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--srcdir", default=None)
+    parser.add_argument("--lockfile", default=None)
+    # We always ignore this parameter, but it has to exist.
+    parser.add_argument("--outdir", default=None)
+    args = parser.parse_args()
+
+    lsrcdir = args.srcdir
+    lockfile = args.lockfile
+
+    status = do_cargo_audit(workdir, lsrcdir, lockfile)
 
     # We exit the context manager, so tempdirname is now removed.
-    if status:
+    if len(status) > 0:
         log.error(" ⚠️  Vulnerabilities may have been found. You must review these.")
         exit(1)
     log.info(" 🎉 🦀 No known issues detected")
+
 
 if __name__ == "__main__":
     main()

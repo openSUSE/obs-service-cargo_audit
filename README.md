@@ -104,6 +104,30 @@ To get further debugging info, run with:
 DEBUG=1 python3 path/to/cargo_audit
 ```
 
+## Do Scan
+
+In some cases we may wish to scan the complete set of packages that OBS has that
+rely on rust for vulnerabilities. This is what the "do\_scan" utility achieves.
+
+> WARNING: This may consume a large amount of disk or CPU to run this tool.
+
+```
+python3 do_scan.py
+```
+
+If you have already run this, and want to just re-check security advisories
+for already setup sources:
+
+```
+python3 do_scan.py --assume-setup
+```
+
+To scan which packages are affected by a specific vulnerability
+
+```
+python3 do_scan.py --assume-setup --rustsec-id XXXX
+```
+
 ## License
 
 MPL-2.0
