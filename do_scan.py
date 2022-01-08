@@ -25,8 +25,9 @@ EXCLUDE = set([
     'MozillaThunderbird',
     'rust',
     'rust1.53',
+    'rust-packaging',
     'seamonkey',
-    'meson:test'
+    'meson:test',
 ])
 
 def list_whatdepends():
