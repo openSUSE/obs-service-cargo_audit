@@ -151,7 +151,6 @@ def do_cargo_audit(workdir, lsrcdir, lockfile):
                 generate_lock(tgtsrc)
             cargo_lock_paths = [cargo_lock_f]
             log.debug(f" {cargo_lock_paths}")
-
         else:
             log.debug(f" Searching for Cargo.lock in: {lsrcdir}")
             cargo_lock_paths = find_file(lsrcdir, "Cargo.lock")
@@ -161,6 +160,7 @@ def do_cargo_audit(workdir, lsrcdir, lockfile):
                 log.info(f" Searching for Cargo.toml in: {lsrcdir}")
                 if find_file(lsrcdir, "Cargo.toml"):
                     generate_lock(lsrcdir)
+                    cargo_lock_paths = [os.path.join(lsrcdir, 'Cargo.lock')]
                 else:
                     log.error(f" No Rust Cargo.toml found under {lsrcdir}")
                     exit(1)
