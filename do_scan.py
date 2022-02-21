@@ -46,12 +46,16 @@ def list_whatdepends():
     # Remove any empty strings.
     raw_depends = [x for x in raw_depends if x != '']
 
+    # remove anything that ends with :term, since this is a multi-build and generally used in tests
+    raw_depends = [x for x in raw_depends if len(x.split(':')) == 1]
+
     # Do we have anything that we should exclude?
     raw_depends = [x for x in raw_depends if x not in EXCLUDE]
 
     return raw_depends
 
 def get_develproject(pkgname):
+    print(f"intent to scan - openSUSE:Factory/{pkgname}")
     try:
         out = subprocess.check_output(["osc", "dp", f"openSUSE:Factory/{pkgname}"])
     except subprocess.CalledProcessError as e:
