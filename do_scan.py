@@ -64,17 +64,22 @@ def get_develproject(pkgname):
         raise e
     return out.decode('UTF-8').strip()
 
-def checkout_or_update(pkgname):
+def checkout_or_update(pkgname, should_setup):
     try:
         if os.path.exists('openSUSE:Factory') and os.path.exists(f'openSUSE:Factory/{pkgname}'):
-            print(f"osc up openSUSE:Factory/{pkgname}")
+            print(f"osc revert openSUSE:Factory/{pkgname}")
             # Revert/cleanup if required.
             out = subprocess.check_output(["osc", "revert", "."], cwd=f"openSUSE:Factory/{pkgname}")
+            print(f"osc clean openSUSE:Factory/{pkgname}")
             out = subprocess.check_output(["osc", "clean", "."], cwd=f"openSUSE:Factory/{pkgname}")
-            out = subprocess.check_output(["osc", "up", f"openSUSE:Factory/{pkgname}"])
-        else:
+            if should_setup:
+                print(f"osc up openSUSE:Factory/{pkgname}")
+                out = subprocess.check_output(["osc", "up", f"openSUSE:Factory/{pkgname}"])
+        elif should_setup:
             print(f"osc co openSUSE:Factory/{pkgname}")
             out = subprocess.check_output(["osc", "co", f"openSUSE:Factory/{pkgname}"])
+        else:
+            print(f"Nothing to do")
     except subprocess.CalledProcessError as e:
         print(f"Failed to checkout or update openSUSE:Factory/{pkgname}")
         print(e.stdout)
@@ -185,30 +190,30 @@ if __name__ == '__main__':
     need_services = set()
     maybe_vuln = set()
 
+    for pkgname in depends:
+        print("---")
+        checkout_or_update(pkgname, args.should_setup)
+        # do they have cargo_audit as a service? Could we consider adding it?
+        (has_services, has_audit, has_vendor_update, lockfile) = does_have_cargo_audit(pkgname)
+        lockfiles[pkgname] = lockfile
+
+        if not has_vendor_update:
+            print(f"😭  openSUSE:Factory/{pkgname} missing cargo_vendor service + update - the maintainer should be contacted to add this")
+            need_services.add(f"{devel_projects[pkgname]}/{pkgname}")
+        if not has_audit:
+            print(f"⚠️   openSUSE:Factory/{pkgname} missing cargo_audit service - the maintainer should be contacted to add this")
+            # print(f"✉️   https://build.opensuse.org/package/users/openSUSE:Factory/{pkgname}")
+            # If not, we should contact the developers to add this. We can attempt to unpack
+            # and run a scan still though.
+            unpack_depends.append((pkgname, has_services))
+            need_services.add(f"{devel_projects[pkgname]}/{pkgname}")
+        else:
+            # If they do, run services. We may not know what they need for this to work, so we
+            # have to run the full stack, but at the least, the developer probably has this
+            # working.
+            auditable_depends.append(pkgname)
+
     if args.should_setup:
-        for pkgname in depends:
-            print("---")
-            checkout_or_update(pkgname)
-            # do they have cargo_audit as a service? Could we consider adding it?
-            (has_services, has_audit, has_vendor_update, lockfile) = does_have_cargo_audit(pkgname)
-            lockfiles[pkgname] = lockfile
-
-            if not has_vendor_update:
-                print(f"😭  openSUSE:Factory/{pkgname} missing cargo_vendor service + update - the maintainer should be contacted to add this")
-                need_services.add(f"{devel_projects[pkgname]}/{pkgname}")
-            if not has_audit:
-                print(f"⚠️   openSUSE:Factory/{pkgname} missing cargo_audit service - the maintainer should be contacted to add this")
-                # print(f"✉️   https://build.opensuse.org/package/users/openSUSE:Factory/{pkgname}")
-                # If not, we should contact the developers to add this. We can attempt to unpack
-                # and run a scan still though.
-                unpack_depends.append((pkgname, has_services))
-                need_services.add(f"{devel_projects[pkgname]}/{pkgname}")
-            else:
-                # If they do, run services. We may not know what they need for this to work, so we
-                # have to run the full stack, but at the least, the developer probably has this
-                # working.
-                auditable_depends.append(pkgname)
-
         for pkgname in auditable_depends:
             print("---")
             print(f"🛠  running services for {devel_projects[pkgname]}/{pkgname} ...")
@@ -228,19 +233,33 @@ if __name__ == '__main__':
         if not do_unpack_scan(pkgname, lockfile, args.rustsec_id):
             maybe_vuln.add(f"{devel_projects[pkgname]}/{pkgname}")
 
+    slow_update = maybe_vuln & need_services
+    fast_update = maybe_vuln - slow_update
+    # We will warn about these anyway since they are in the vuln set.
     need_services -= maybe_vuln
+    # Remove items which items can rapid-update from the slow set
+    maybe_vuln -= fast_update
+
     print("--- complete")
 
-    if len(maybe_vuln) > 0:
+    if len(fast_update) > 0:
         if args.rustsec_id:
-            print(f"- the following pkgs need SECURITY updates to address {args.rustsec_id}")
+            print(f"- the following pkgs need SECURITY updates to address {args.rustsec_id} - svc setup")
         else:
-            print("- the following pkgs need SECURITY updates")
-        for item in maybe_vuln:
+            print("- the following pkgs need SECURITY updates - svc setup")
+        for item in fast_update:
+            print(f"osc bco {item}")
+
+    if len(slow_update) > 0:
+        if args.rustsec_id:
+            print(f"- the following pkgs need SECURITY updates to address {args.rustsec_id} - manual")
+        else:
+            print("- the following pkgs need SECURITY updates - manual")
+        for item in slow_update:
             print(f"osc bco {item}")
 
     if len(need_services) > 0:
-        print("- the following SHOULD have services updated")
+        print("- the following are NOT vulnerable but SHOULD have services updated")
         for item in need_services:
             print(f"osc bco {item}")
 
