@@ -178,6 +178,7 @@ if __name__ == '__main__':
 
     # For testing, we hardcode the list for dev.
     # depends = ["kanidm", "389-ds", "bottom", "helvum"]
+    # depends = ["greetd"]
 
     devel_projects = {}
     for pkgname in depends:

@@ -64,7 +64,7 @@ def find_file(path, filename):
 def generate_lock(path):
     log.debug(f" Running cargo generate-lockfile against: {path}/Cargo.toml")
     cmd = [
-        "cargo", "generate-lockfile", "-q",
+        "cargo", "generate-lockfile",
         "--manifest-path", f"{path}/Cargo.toml",
     ]
     dcmd = " ".join(cmd)
@@ -74,6 +74,8 @@ def generate_lock(path):
     log.debug(f" return: {proc.returncode}")
     if proc.returncode != 0:
         log.error(f" Could not generate Cargo.lock under {path}")
+        log.error(f"{output}")
+        log.error(f"{os.listdir(path)}")
         exit(1)
 
 def cargo_audit(lock_file):
@@ -95,6 +97,7 @@ def cargo_audit(lock_file):
     proc = run(cmd, check=False, stdout=PIPE, stderr=STDOUT)
     output = proc.stdout.decode("utf-8").strip()
     log.debug(f"return: {proc.returncode}")
+    log.debug(f"{output}")
     details = json.loads(output)
     # log.debug(json.dumps(details, sort_keys=True, indent=4))
     if proc.returncode != 0:
@@ -125,32 +128,41 @@ def do_extract(from_dir, tgt_dir):
         log.debug(f"Unpacking assumed source tar {src} to {tgt_dir}")
         with tarfile.open(f"{from_dir}/{src}", "r:*") as tar:
             tar.extractall(path=tgt_dir)
+    return [os.path.join(tgt_dir, x) for x in os.listdir(tgt_dir)]
 
 def do_cargo_audit(workdir, lsrcdir, lockfile):
     scan = []
 
     # Setup our temp dir, in case we need it.
     with tempfile.TemporaryDirectory() as tmpdirname:
+        srcdirs = [lsrcdir]
         if lsrcdir is None:
             # We likely need to unpack sources.
             log.debug(f" setting up sources into {tmpdirname}")
             lsrcdir = tmpdirname
-            do_extract(workdir, tmpdirname)
+            srcdirs = do_extract(workdir, tmpdirname)
         else:
             (_, dirname) = os.path.split(lsrcdir)
             dirpath = os.path.join(tmpdirname, dirname)
             log.debug(f" copying sources into {dirpath}")
             lsrcdir = shutil.copytree(lsrcdir, dirpath, dirs_exist_ok=True)
 
+        log.debug(f"srcdirs {srcdirs}")
+
+        if not srcdirs:
+            log.error(" No source directories are available - perhaps this requires services?")
+            raise ValueError("No source directories are available")
+
         cargo_lock_paths = []
-        if lockfile:
-            cargo_lock_f = os.path.join(lsrcdir, lockfile)
+        if lockfile and len(srcdirs) == 1:
+            tsrcdir = srcdirs[0]
+            cargo_lock_f = os.path.join(tsrcdir, lockfile)
             log.info(f" _service configured lock file: {lockfile} -> {cargo_lock_f}")
             if not os.path.exists(cargo_lock_f):
                 (tgtsrc, _) = os.path.split(cargo_lock_f)
                 generate_lock(tgtsrc)
             cargo_lock_paths = [cargo_lock_f]
-            log.debug(f" {cargo_lock_paths}")
+            log.debug(f"using {cargo_lock_paths}")
         else:
             log.debug(f" Searching for Cargo.lock in: {lsrcdir}")
             cargo_lock_paths = find_file(lsrcdir, "Cargo.lock")
@@ -158,11 +170,23 @@ def do_cargo_audit(workdir, lsrcdir, lockfile):
             if not cargo_lock_paths:
                 log.info(f" No Rust Cargo.lock found under {lsrcdir}")
                 log.info(f" Searching for Cargo.toml in: {lsrcdir}")
-                if find_file(lsrcdir, "Cargo.toml"):
-                    generate_lock(lsrcdir)
-                    cargo_lock_paths = [os.path.join(lsrcdir, 'Cargo.lock')]
+                cargo_tomls = find_file(lsrcdir, "Cargo.toml")
+                if len(cargo_tomls) > 0:
+                    for toml in cargo_tomls:
+                        gsrcdir = os.path.dirname(toml)
+                        generate_lock(gsrcdir)
+                        # cargo_lock_paths = [os.path.join(gsrcdir, 'Cargo.lock')]
                 else:
                     log.error(f" No Rust Cargo.toml found under {lsrcdir}")
+                    exit(1)
+                # depending on the layout this could be a workspace, or a bunch
+                # of projects. This changes where the cargo locks MAY end up so we
+                # have to rescan here.
+                log.debug(f" Searching for Cargo.lock in: {lsrcdir}")
+                cargo_lock_paths = find_file(lsrcdir, "Cargo.lock")
+
+                if not cargo_lock_paths:
+                    log.error(f" No Rust Cargo.lock found under {lsrcdir} after generation")
                     exit(1)
             else:
                 log.debug(f" Detected Rust lock files: {cargo_lock_paths}")
