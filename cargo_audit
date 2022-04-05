@@ -221,6 +221,8 @@ def main():
     parser.add_argument("--outdir", default=None)
     args = parser.parse_args()
 
+    log.debug("%s" % args)
+
     lsrcdir = args.srcdir
     lockfile = args.lockfile
 

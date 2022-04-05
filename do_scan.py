@@ -21,11 +21,16 @@ CHECKOUT = ["osc", "co", "openSUSE:Factory"]
 UPDATE = ["osc", "up", "openSUSE:Factory"]
 
 EXCLUDE = set([
+    # ALready cared for
     'MozillaFirefox',
     'MozillaThunderbird',
     'rust',
     'rust1.53',
+    # Doesn't have any true rust deps.
+    'obs-service-cargo_audit',
+    'cargo-audit-advisory-db',
     'rust-packaging',
+    # Dead
     'seamonkey',
     'meson:test',
 ])
@@ -207,7 +212,7 @@ if __name__ == '__main__':
             # If not, we should contact the developers to add this. We can attempt to unpack
             # and run a scan still though.
             unpack_depends.append((pkgname, has_services))
-            need_services.add(f"{devel_projects[pkgname]}/{pkgname}")
+            # need_services.add(f"{devel_projects[pkgname]}/{pkgname}")
         else:
             # If they do, run services. We may not know what they need for this to work, so we
             # have to run the full stack, but at the least, the developer probably has this
@@ -250,6 +255,10 @@ if __name__ == '__main__':
             print("- the following pkgs need SECURITY updates - svc setup")
         for item in fast_update:
             print(f"osc bco {item}")
+
+        print(f" Alternately")
+        print(f" python3 do_bulk_update.py %s" % ' '.join(fast_update))
+
 
     if len(slow_update) > 0:
         if args.rustsec_id:
