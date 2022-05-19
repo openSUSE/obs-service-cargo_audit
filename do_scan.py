@@ -95,6 +95,7 @@ def does_have_cargo_audit(pkgname):
     service = f"openSUSE:Factory/{pkgname}/_service"
     if os.path.exists(service):
         has_audit = False
+        has_vendor = False
         has_vendor_update = False
         lockfile = None
         tree = ET.parse(service)
@@ -109,6 +110,7 @@ def does_have_cargo_audit(pkgname):
                 # from our internal calls.
                 root_node.remove(tag)
             if tag.attrib['name'] == 'cargo_vendor':
+                has_vendor = True
                 for attr in tag:
                     if attr.attrib['name'] == 'update' and attr.text == 'true':
                         has_vendor_update = True
@@ -116,8 +118,8 @@ def does_have_cargo_audit(pkgname):
                 # on vulns.
                 root_node.remove(tag)
         tree.write(service)
-        return (True, has_audit, has_vendor_update, lockfile)
-    return (False, False, False, None)
+        return (True, has_audit, has_vendor, has_vendor_update, lockfile)
+    return (False, False, False, False, None)
 
 def do_services(pkgname):
     cmd = [
@@ -183,7 +185,7 @@ if __name__ == '__main__':
 
     # For testing, we hardcode the list for dev.
     # depends = ["kanidm", "389-ds", "bottom", "helvum"]
-    # depends = ["greetd"]
+    # depends = ["fractal"]
 
     devel_projects = {}
     for pkgname in depends:
@@ -193,26 +195,29 @@ if __name__ == '__main__':
     # Check them out, or update if they exist.
     auditable_depends = []
     unpack_depends = []
-    need_services = set()
+    need_vendor_services = set()
     maybe_vuln = set()
 
     for pkgname in depends:
         print("---")
         checkout_or_update(pkgname, args.should_setup)
         # do they have cargo_audit as a service? Could we consider adding it?
-        (has_services, has_audit, has_vendor_update, lockfile) = does_have_cargo_audit(pkgname)
+        (has_services, has_audit, has_vendor, has_vendor_update, lockfile) = does_have_cargo_audit(pkgname)
         lockfiles[pkgname] = lockfile
 
-        if not has_vendor_update:
+        if not has_vendor:
             print(f"😭  openSUSE:Factory/{pkgname} missing cargo_vendor service + update - the maintainer should be contacted to add this")
-            need_services.add(f"{devel_projects[pkgname]}/{pkgname}")
+            need_vendor_services.add(f"{devel_projects[pkgname]}/{pkgname}")
+
+        if not has_vendor_update:
+            print(f"👀  openSUSE:Factory/{pkgname} missing cargo_vendor auto update - the maintainer should be contacted to add this")
+
         if not has_audit:
             print(f"⚠️   openSUSE:Factory/{pkgname} missing cargo_audit service - the maintainer should be contacted to add this")
             # print(f"✉️   https://build.opensuse.org/package/users/openSUSE:Factory/{pkgname}")
             # If not, we should contact the developers to add this. We can attempt to unpack
             # and run a scan still though.
             unpack_depends.append((pkgname, has_services))
-            # need_services.add(f"{devel_projects[pkgname]}/{pkgname}")
         else:
             # If they do, run services. We may not know what they need for this to work, so we
             # have to run the full stack, but at the least, the developer probably has this
@@ -239,10 +244,10 @@ if __name__ == '__main__':
         if not do_unpack_scan(pkgname, lockfile, args.rustsec_id):
             maybe_vuln.add(f"{devel_projects[pkgname]}/{pkgname}")
 
-    slow_update = maybe_vuln & need_services
+    slow_update = maybe_vuln & need_vendor_services
     fast_update = maybe_vuln - slow_update
     # We will warn about these anyway since they are in the vuln set.
-    need_services -= maybe_vuln
+    need_vendor_services -= maybe_vuln
     # Remove items which items can rapid-update from the slow set
     maybe_vuln -= fast_update
 
@@ -257,20 +262,20 @@ if __name__ == '__main__':
             print(f"osc bco {item}")
 
         print(f" Alternately")
-        print(f" python3 do_bulk_update.py %s" % ' '.join(fast_update))
+        print(f" python3 do_bulk_update.py --yolo %s" % ' '.join(fast_update))
 
 
     if len(slow_update) > 0:
         if args.rustsec_id:
-            print(f"- the following pkgs need SECURITY updates to address {args.rustsec_id} - manual")
+            print(f"- the following pkgs need SECURITY updates to address {args.rustsec_id} - manual, missing cargo_vendor")
         else:
             print("- the following pkgs need SECURITY updates - manual")
         for item in slow_update:
             print(f"osc bco {item}")
 
-    if len(need_services) > 0:
-        print("- the following are NOT vulnerable but SHOULD have services updated")
-        for item in need_services:
+    if len(need_vendor_services) > 0:
+        print("- the following are NOT vulnerable but SHOULD have services updated to include cargo_vendor!")
+        for item in need_vendor_services:
             print(f"osc bco {item}")
 
 
