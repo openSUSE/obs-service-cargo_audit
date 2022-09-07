@@ -128,6 +128,18 @@ To scan which packages are affected by a specific vulnerability
 python3 do_scan.py --assume-setup --rustsec-id XXXX
 ```
 
+You can scan specific packages with `--package`.
+
+```
+python3 do_scan.py --package a b c
+```
+
+To scan a different OBS instance you can set the url and repo name
+
+```
+python3 do_scan.py --api https://api.opensuse.org --repo openSUSE:Factory
+```
+
 ## License
 
 MPL-2.0

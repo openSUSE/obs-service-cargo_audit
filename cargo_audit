@@ -115,7 +115,7 @@ def cargo_audit(lock_file):
                 categories = vuln["advisory"]["categories"]
                 log.error(f" * {vid} -> crate: {affects}, cvss: {cvss}, class: {categories}")
             return details
-    log.info(f"  ✅ No known issues detected in {lock_file}")
+    log.debug(f"  ✅ No known issues detected in {lock_file}")
     return None
 
 def do_extract(from_dir, tgt_dir):

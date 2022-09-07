@@ -15,17 +15,11 @@ spec = importlib.util.spec_from_loader( 'cargo_audit_module', loader )
 cargo_audit_module = importlib.util.module_from_spec( spec )
 loader.exec_module( cargo_audit_module )
 
-WHATDEPENDS = ["osc", "whatdependson", "openSUSE:Factory", "rust", "standard", "x86_64"]
-
-CHECKOUT = ["osc", "co", "openSUSE:Factory"]
-UPDATE = ["osc", "up", "openSUSE:Factory"]
-
 EXCLUDE = set([
     # ALready cared for
     'MozillaFirefox',
     'MozillaThunderbird',
     'rust',
-    'rust1.53',
     # Doesn't have any true rust deps.
     'obs-service-cargo_audit',
     'cargo-audit-advisory-db',
@@ -35,9 +29,19 @@ EXCLUDE = set([
     'meson:test',
 ])
 
-def list_whatdepends():
+def list_whatdepends(obs_api, obs_repo):
     # osc whatdependson openSUSE:Factory rust standard x86_64
-    raw_depends = subprocess.check_output(WHATDEPENDS, encoding='UTF-8')
+    raw_depends = subprocess.check_output(
+        [
+            "osc",
+            "-A", obs_api,
+            "whatdependson",
+            obs_repo,
+            "rust",
+            "standard",
+            "x86_64"
+        ],
+        encoding='UTF-8')
 
     # Split on new lines
     raw_depends = raw_depends.split('\n')
@@ -59,40 +63,40 @@ def list_whatdepends():
 
     return raw_depends
 
-def get_develproject(pkgname):
-    print(f"intent to scan - openSUSE:Factory/{pkgname}")
+def get_develproject(pkgname, obs_api, obs_repo):
+    print(f"intent to scan - {obs_repo}/{pkgname}")
     try:
-        out = subprocess.check_output(["osc", "dp", f"openSUSE:Factory/{pkgname}"])
+        out = subprocess.check_output(["osc", "-A", obs_api, "dp", f"{obs_repo}/{pkgname}"])
     except subprocess.CalledProcessError as e:
-        print(f"Failed to retrieve develproject information for openSUSE:Factory/{pkgname}")
+        print(f"Failed to retrieve develproject information for {obs_repo}/{pkgname}")
         print(e.stdout)
         raise e
     return out.decode('UTF-8').strip()
 
-def checkout_or_update(pkgname, should_setup):
+def checkout_or_update(pkgname, should_setup, obs_api, obs_repo):
     try:
-        if os.path.exists('openSUSE:Factory') and os.path.exists(f'openSUSE:Factory/{pkgname}'):
-            print(f"osc revert openSUSE:Factory/{pkgname}")
+        if os.path.exists(obs_repo) and os.path.exists(f'{obs_repo}/{pkgname}'):
+            print(f"osc -A {obs_api} revert {obs_repo}/{pkgname}")
             # Revert/cleanup if required.
-            out = subprocess.check_output(["osc", "revert", "."], cwd=f"openSUSE:Factory/{pkgname}")
-            print(f"osc clean openSUSE:Factory/{pkgname}")
-            out = subprocess.check_output(["osc", "clean", "."], cwd=f"openSUSE:Factory/{pkgname}")
+            out = subprocess.check_output(["osc", "-A", obs_api, "revert", "."], cwd=f"{obs_repo}/{pkgname}")
+            print(f"osc -A {obs_api} clean {obs_repo}/{pkgname}")
+            out = subprocess.check_output(["osc", "-A", obs_api, "clean", "."], cwd=f"{obs_repo}/{pkgname}")
             if should_setup:
-                print(f"osc up openSUSE:Factory/{pkgname}")
-                out = subprocess.check_output(["osc", "up", f"openSUSE:Factory/{pkgname}"])
+                print(f"osc -A {obs_api} up {obs_repo}/{pkgname}")
+                out = subprocess.check_output(["osc", "-A", obs_api, "up", f"{obs_repo}/{pkgname}"])
         elif should_setup:
-            print(f"osc co openSUSE:Factory/{pkgname}")
-            out = subprocess.check_output(["osc", "co", f"openSUSE:Factory/{pkgname}"])
+            print(f"osc -A {obs_api} co {obs_repo}/{pkgname}")
+            out = subprocess.check_output(["osc", "-A", obs_api, "co", f"{obs_repo}/{pkgname}"])
         else:
             print(f"Nothing to do")
     except subprocess.CalledProcessError as e:
-        print(f"Failed to checkout or update openSUSE:Factory/{pkgname}")
+        print(f"Failed to checkout or update {obs_repo}/{pkgname}")
         print(e.stdout)
         raise e
-    print(f"done")
+    # Done!
 
-def does_have_cargo_audit(pkgname):
-    service = f"openSUSE:Factory/{pkgname}/_service"
+def does_have_cargo_audit(pkgname, obs_repo):
+    service = f"{obs_repo}/{pkgname}/_service"
     if os.path.exists(service):
         has_audit = False
         has_vendor = False
@@ -121,14 +125,14 @@ def does_have_cargo_audit(pkgname):
         return (True, has_audit, has_vendor, has_vendor_update, lockfile)
     return (False, False, False, False, None)
 
-def do_services(pkgname):
+def do_services(pkgname, obs_api, obs_repo):
     cmd = [
         "nsjail",
         "--really_quiet",
         "--config", "scan.cfg",
-        "--cwd", f"{os.getcwd()}/openSUSE:Factory/{pkgname}",
+        "--cwd", f"{os.getcwd()}/{obs_repo}/{pkgname}",
         "--bindmount", f"{os.getcwd()}:{os.getcwd()}",
-        "/usr/bin/osc", "service", "ra"
+        "--", "/usr/bin/osc", "-A", obs_api, "service", "ra"
     ]
     try:
         out = subprocess.check_output(cmd, encoding='UTF-8', stderr=subprocess.STDOUT)
@@ -140,14 +144,14 @@ def do_services(pkgname):
         print(e.stdout)
         return False
 
-def do_unpack_scan(pkgname, lockfile, rustsec_id):
+def do_unpack_scan(pkgname, lockfile, rustsec_id, obs_repo):
     try:
         scan = cargo_audit_module.do_cargo_audit(
-            f"{os.getcwd()}/openSUSE:Factory/{pkgname}",
+            f"{os.getcwd()}/{obs_repo}/{pkgname}",
             None,
             lockfile)
-    except:
-        print(f"🚨 -- cargo_audit was unable to be run")
+    except Exception as e:
+        print(f"🚨 -- cargo_audit was unable to be run - {e}")
         return False
 
     if rustsec_id is not None:
@@ -177,19 +181,22 @@ if __name__ == '__main__':
         description="scan OBS gooderer",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
+
+    parser.add_argument('-a', '--api', dest='obs_api', default="https://api.opensuse.org")
+    parser.add_argument('-r', '--repo', dest='obs_repo', default="openSUSE:Factory")
     parser.add_argument('--assume-setup', dest='should_setup', action='store_false')
     parser.add_argument('--rustsec-id', dest='rustsec_id', default=None)
+    parser.add_argument('--package', dest='package', default=None, nargs='*')
     args = parser.parse_args()
 
-    depends = list_whatdepends()
-
-    # For testing, we hardcode the list for dev.
-    # depends = ["kanidm", "389-ds", "bottom", "helvum"]
-    # depends = ["fractal"]
+    if args.package is not None:
+        depends = args.package
+    else:
+        depends = list_whatdepends(args.obs_api, arg.obs_repo)
 
     devel_projects = {}
     for pkgname in depends:
-        devel_projects[pkgname] = get_develproject(pkgname)
+        devel_projects[pkgname] = get_develproject(pkgname, args.obs_api, args.obs_repo)
     lockfiles = {}
 
     # Check them out, or update if they exist.
@@ -200,20 +207,20 @@ if __name__ == '__main__':
 
     for pkgname in depends:
         print("---")
-        checkout_or_update(pkgname, args.should_setup)
+        checkout_or_update(pkgname, args.should_setup, args.obs_api, args.obs_repo)
         # do they have cargo_audit as a service? Could we consider adding it?
-        (has_services, has_audit, has_vendor, has_vendor_update, lockfile) = does_have_cargo_audit(pkgname)
+        (has_services, has_audit, has_vendor, has_vendor_update, lockfile) = does_have_cargo_audit(pkgname, args.obs_repo)
         lockfiles[pkgname] = lockfile
 
         if not has_vendor:
-            print(f"😭  openSUSE:Factory/{pkgname} missing cargo_vendor service + update - the maintainer should be contacted to add this")
+            print(f"😭  {args.obs_repo}/{pkgname} missing cargo_vendor service + update - the maintainer should be contacted to add this")
             need_vendor_services.add(f"{devel_projects[pkgname]}/{pkgname}")
 
         if not has_vendor_update:
-            print(f"👀  openSUSE:Factory/{pkgname} missing cargo_vendor auto update - the maintainer should be contacted to add this")
+            print(f"👀  {args.obs_repo}/{pkgname} missing cargo_vendor auto update - the maintainer should be contacted to add this")
 
         if not has_audit:
-            print(f"⚠️   openSUSE:Factory/{pkgname} missing cargo_audit service - the maintainer should be contacted to add this")
+            print(f"⚠️   {args.obs_repo}/{pkgname} missing cargo_audit service - the maintainer should be contacted to add this")
             # print(f"✉️   https://build.opensuse.org/package/users/openSUSE:Factory/{pkgname}")
             # If not, we should contact the developers to add this. We can attempt to unpack
             # and run a scan still though.
@@ -228,20 +235,20 @@ if __name__ == '__main__':
         for pkgname in auditable_depends:
             print("---")
             print(f"🛠  running services for {devel_projects[pkgname]}/{pkgname} ...")
-            do_services(pkgname)
+            do_services(pkgname, args.obs_api, args.obs_repo)
 
         for (pkgname, has_services) in unpack_depends:
             print("---")
             if has_services:
-                print(f"🛠 running services for {devel_projects[pkgname]}/{pkgname} ...")
-                do_services(pkgname)
+                print(f"🛠  running services for {devel_projects[pkgname]}/{pkgname} ...")
+                do_services(pkgname, args.obs_api, args.obs_repo)
 
     # Do the thang
     for pkgname in depends:
         print("---")
         print(f"🍿 unpacking and scanning {devel_projects[pkgname]}/{pkgname} ...")
         lockfile = lockfiles.get(pkgname, None)
-        if not do_unpack_scan(pkgname, lockfile, args.rustsec_id):
+        if not do_unpack_scan(pkgname, lockfile, args.rustsec_id, args.obs_repo):
             maybe_vuln.add(f"{devel_projects[pkgname]}/{pkgname}")
 
     slow_update = maybe_vuln & need_vendor_services
@@ -259,7 +266,7 @@ if __name__ == '__main__':
         else:
             print("- the following pkgs need SECURITY updates - svc setup")
         for item in fast_update:
-            print(f"osc bco {item}")
+            print(f"osc -A {args.obs_api} bco {item}")
 
         print(f" Alternately")
         print(f" python3 do_bulk_update.py --yolo %s" % ' '.join(fast_update))
@@ -271,12 +278,12 @@ if __name__ == '__main__':
         else:
             print("- the following pkgs need SECURITY updates - manual")
         for item in slow_update:
-            print(f"osc bco {item}")
+            print(f"osc -A {args.obs_api} bco {item}")
 
     if len(need_vendor_services) > 0:
         print("- the following are NOT vulnerable but SHOULD have services updated to include cargo_vendor!")
         for item in need_vendor_services:
-            print(f"osc bco {item}")
+            print(f"osc -A {args.obs_api} bco {item}")
 
 
 
