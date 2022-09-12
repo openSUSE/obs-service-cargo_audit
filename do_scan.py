@@ -192,7 +192,7 @@ if __name__ == '__main__':
     if args.package is not None:
         depends = args.package
     else:
-        depends = list_whatdepends(args.obs_api, arg.obs_repo)
+        depends = list_whatdepends(args.obs_api, args.obs_repo)
 
     devel_projects = {}
     for pkgname in depends:
