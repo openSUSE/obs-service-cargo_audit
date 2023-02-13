@@ -27,6 +27,12 @@ EXCLUDE = set([
     # Dead
     'seamonkey',
     'meson:test',
+
+
+    # Temp
+    'aws-nitro-enclaves-cli',
+    # Broken
+    'netease-cloud-music-gtk'
 ])
 
 def list_whatdepends(obs_api, obs_repo):

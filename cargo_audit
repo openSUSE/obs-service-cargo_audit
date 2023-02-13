@@ -76,7 +76,7 @@ def generate_lock(path):
         log.error(f" Could not generate Cargo.lock under {path}")
         log.error(f"{output}")
         log.error(f"{os.listdir(path)}")
-        exit(1)
+        raise ValueError(f" Could not generate Cargo.lock under {path}")
 
 def cargo_audit(lock_file):
     log.debug(f"Running cargo audit against: {lock_file}")
@@ -178,7 +178,7 @@ def do_cargo_audit(workdir, lsrcdir, lockfile):
                         # cargo_lock_paths = [os.path.join(gsrcdir, 'Cargo.lock')]
                 else:
                     log.error(f" No Rust Cargo.toml found under {lsrcdir}")
-                    exit(1)
+                    raise ValueError(f" No Rust Cargo.toml found under {lsrcdir}")
                 # depending on the layout this could be a workspace, or a bunch
                 # of projects. This changes where the cargo locks MAY end up so we
                 # have to rescan here.
@@ -187,7 +187,7 @@ def do_cargo_audit(workdir, lsrcdir, lockfile):
 
                 if not cargo_lock_paths:
                     log.error(f" No Rust Cargo.lock found under {lsrcdir} after generation")
-                    exit(1)
+                    raise ValueError(f" No Rust Cargo.lock found under {lsrcdir} after generation")
             else:
                 log.debug(f" Detected Rust lock files: {cargo_lock_paths}")
 
@@ -226,14 +226,16 @@ def main():
     lsrcdir = args.srcdir
     lockfile = args.lockfile
 
-    status = do_cargo_audit(workdir, lsrcdir, lockfile)
+    try:
+        status = do_cargo_audit(workdir, lsrcdir, lockfile)
 
-    # We exit the context manager, so tempdirname is now removed.
-    if len(status) > 0:
-        log.error(" ⚠️  Vulnerabilities may have been found. You must review these.")
+        # We exit the context manager, so tempdirname is now removed.
+        if len(status) > 0:
+            log.error(" ⚠️  Vulnerabilities may have been found. You must review these.")
+            exit(1)
+        log.info(" 🎉 🦀 No known issues detected")
+    except Exception as e:
         exit(1)
-    log.info(" 🎉 🦀 No known issues detected")
-
 
 if __name__ == "__main__":
     main()
