@@ -29,6 +29,7 @@ import argparse
 import os
 import shutil
 import json
+import zstandard
 
 from subprocess import run
 from subprocess import PIPE
@@ -126,8 +127,21 @@ def do_extract(from_dir, tgt_dir):
     ]
     for src in maybe_src:
         log.debug(f"Unpacking assumed source tar {src} to {tgt_dir}")
-        with tarfile.open(f"{from_dir}/{src}", "r:*") as tar:
-            tar.extractall(path=tgt_dir)
+        # Code for zst decompression is 
+        # based or copied from https://github.com/openSUSE/obs-service-cargo_vendor/blob/4780427e1640bdd31afc5adb258dc555eec33c40/cargo_vendor#L136-L139
+        if src.endswith(".tar.zst"):
+            log.debug(" zst compressed tarball sources found.")
+            with tempfile.NamedTemporaryFile() as decompressed:
+                with open(src, "rb") as compressed:
+                    zstd = zstandard.ZstdDecompressor()
+                    zstd.copy_stream(compressed, decompressed)
+                decompressed.seek(0)
+                # Setup the tar
+                with tarfile.open(fileobj=decompressed, mode="r:") as tar:
+                    tar.extractall(path=tgt_dir)
+        else:
+            with tarfile.open(f"{from_dir}/{src}", "r:*") as tar:
+                tar.extractall(path=tgt_dir)
     return [os.path.join(tgt_dir, x) for x in os.listdir(tgt_dir)]
 
 def do_cargo_audit(workdir, lsrcdir, lockfile):
