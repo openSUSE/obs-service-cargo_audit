@@ -159,7 +159,7 @@ def do_cargo_audit(workdir, lsrcdir, lockfile):
             (_, dirname) = os.path.split(lsrcdir)
             dirpath = os.path.join(tmpdirname, dirname)
             log.debug(f" copying sources into {dirpath}")
-            lsrcdir = shutil.copytree(lsrcdir, dirpath, dirs_exist_ok=True)
+            lsrcdir = shutil.copytree(lsrcdir, dirpath)
 
         log.debug(f"srcdirs {srcdirs}")
 
